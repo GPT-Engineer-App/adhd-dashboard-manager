@@ -1,18 +1,18 @@
-import os from 'os';
-import json from 'json';
-import requests from 'axios';
-import logging from 'logging';
-import sqlite3 from 'sqlite3';
+import axios from 'axios';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { openDB } from 'idb';
 import { sleep } from 'sleep';
 
 // Configure logging
-logging.basicConfig({ level: 'info', filename: 'app.log', filemode: 'a', format: '%(asctime)s - %(levelname)s - %(message)s' });
+const log = (level, message) => {
+    console[level](`${new Date().toISOString()} - ${level.toUpperCase()} - ${message}`);
+};
 
 // Set up environment variable for API key
-const api_key = process.env.AIMLAPI_API_KEY;
+const api_key = import.meta.env.VITE_AIMLAPI_API_KEY;
 
 if (!api_key) {
-    throw new Error("API key not found. Please set the AIMLAPI_API_KEY environment variable.");
+    throw new Error("API key not found. Please set the VITE_AIMLAPI_API_KEY environment variable.");
 }
 
 // Helper function to make API requests with retries and logging
@@ -28,13 +28,13 @@ const make_request = async (url, method = 'GET', headers = null, data = null, re
         try {
             let response;
             if (method === 'GET') {
-                response = await requests.get(url, { headers, data });
+                response = await axios.get(url, { headers, data });
             } else {
-                response = await requests.post(url, { headers, data });
+                response = await axios.post(url, data, { headers });
             }
             return response.data;
         } catch (error) {
-            logging.error(`Request failed on attempt ${attempt + 1}: ${error}`);
+            log('error', `Request failed on attempt ${attempt + 1}: ${error}`);
             await sleep(2 ** attempt);  // Exponential backoff
             if (attempt === retries - 1) {
                 return null;
@@ -48,50 +48,43 @@ const short_term_memory = {};
 const long_term_memory = {};
 
 // Initialize database for long-term memory
-const init_db = () => {
-    const conn = new sqlite3.Database('memory.db');
-    conn.run('CREATE TABLE IF NOT EXISTS long_term_memory (key TEXT, value TEXT)');
-    return conn;
+const init_db = async () => {
+    const db = await openDB('memory', 1, {
+        upgrade(db) {
+            db.createObjectStore('long_term_memory');
+        },
+    });
+    return db;
 };
 
 // Save to database
-const save_to_db = (key, value) => {
-    const conn = init_db();
-    conn.run("INSERT INTO long_term_memory (key, value) VALUES (?, ?)", [key, value]);
-    conn.close();
+const save_to_db = async (key, value) => {
+    const db = await init_db();
+    await db.put('long_term_memory', value, key);
 };
 
 // Load from database
-const load_from_db = (key) => {
-    const conn = init_db();
-    return new Promise((resolve, reject) => {
-        conn.get("SELECT value FROM long_term_memory WHERE key=?", [key], (err, row) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(row ? row.value : null);
-            }
-            conn.close();
-        });
-    });
+const load_from_db = async (key) => {
+    const db = await init_db();
+    return await db.get('long_term_memory', key);
 };
 
 // Save context to file
 const save_context = (context, filename = "context.json") => {
     try {
-        fs.writeFileSync(filename, JSON.stringify(context));
+        writeFileSync(filename, JSON.stringify(context));
     } catch (error) {
-        logging.error(`Could not save context: ${error}`);
+        log('error', `Could not save context: ${error}`);
     }
 };
 
 // Load context from file
 const load_context = (filename = "context.json") => {
-    if (fs.existsSync(filename)) {
+    if (existsSync(filename)) {
         try {
-            return JSON.parse(fs.readFileSync(filename));
+            return JSON.parse(readFileSync(filename));
         } catch (error) {
-            logging.error(`Could not load context: ${error}`);
+            log('error', `Could not load context: ${error}`);
         }
     }
     return {};
@@ -128,7 +121,7 @@ const sentiment_analysis = (text) => {
 // Execute code in a sandboxed environment
 const execute_code = (code) => {
     try {
-        const result = require('child_process').execSync(`python -c "${code}"`, { timeout: 5000 });
+        const result = new Function(code)();
         return result.toString();
     } catch (error) {
         return error.toString();
@@ -139,13 +132,13 @@ const execute_code = (code) => {
 const chatbot = async () => {
     const assistant_info = await create_assistant("BespokeAssistant", "A custom, context-aware assistant.");
     if (!assistant_info) {
-        logging.error("Failed to create assistant.");
+        log('error', "Failed to create assistant.");
         return;
     }
 
     const assistant_id = assistant_info.id;
     if (!assistant_id) {
-        logging.error("Failed to retrieve assistant ID.");
+        log('error', "Failed to retrieve assistant ID.");
         return;
     }
 
@@ -156,7 +149,7 @@ const chatbot = async () => {
     if (!thread_info) {
         thread_info = await create_thread(assistant_id, "Persistent Session");
         if (!thread_info) {
-            logging.error("Failed to create thread.");
+            log('error', "Failed to create thread.");
             return;
         }
         context.thread_info = thread_info;
@@ -165,11 +158,11 @@ const chatbot = async () => {
 
     const thread_id = thread_info.id;
     if (!thread_id) {
-        logging.error("Failed to retrieve thread ID.");
+        log('error', "Failed to retrieve thread ID.");
         return;
     }
 
-    logging.info("Assistant is ready. Type 'exit' to quit.");
+    log('info', "Assistant is ready. Type 'exit' to quit.");
     while (true) {
         const user_input = prompt("You: ");
         if (user_input.toLowerCase() === 'exit') {
@@ -189,7 +182,7 @@ const chatbot = async () => {
 
         const run_response = await create_run(thread_id, user_input);
         if (!run_response) {
-            logging.error("Failed to process input.");
+            log('error', "Failed to process input.");
             continue;
         }
 
