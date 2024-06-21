@@ -1,4 +1,5 @@
 import { Route, BrowserRouter as Router, Routes } from "react-router-dom";
+import Navbar from "./components/Navbar.jsx"; // Import the new Navbar component
 import Index from "./pages/Index.jsx";
 import TimeTracking from "./pages/TimeTracking.jsx";
 import TaskManagement from "./pages/TaskManagement.jsx";
@@ -8,6 +9,8 @@ import ServerlessFunctions from "./pages/ServerlessFunctions.jsx";
 function App() {
   return (
     <Router>
+      <Navbar /> {/* Add the Navbar component here */}
+    
       <Routes>
         <Route exact path="/" element={<Index />} />
         <Route path="/time-tracking" element={<TimeTracking />} />

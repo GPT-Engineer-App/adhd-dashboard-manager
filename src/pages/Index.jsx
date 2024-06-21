@@ -1,4 +1,4 @@
-import { Container, Text, VStack, Heading, Box, Button, IconButton } from "@chakra-ui/react";
+import { Container, Text, VStack, Heading, Box, Button } from "@chakra-ui/react";
 import { FaTasks, FaClock, FaBrain, FaServer } from "react-icons/fa";
 import { Link } from "react-router-dom";
 
