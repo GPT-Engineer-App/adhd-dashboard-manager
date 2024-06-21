@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { Box, Heading, Text, Input, Button, VStack, Image, Spinner } from "@chakra-ui/react";
 import axios from "axios";
-import { WebSocket } from 'ws';
 import nlp from 'compromise';
 import compromiseNER from 'compromise-numbers';
 
