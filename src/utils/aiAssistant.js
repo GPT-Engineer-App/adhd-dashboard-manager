@@ -126,7 +126,7 @@ const execute_code = (code) => {
 };
 
 // Main function to handle the chatbot
-const chatbot = async () => {
+export const chatbot = async () => {
     const assistant_info = await create_assistant("BespokeAssistant", "A custom, context-aware assistant.");
     if (!assistant_info) {
         log('error', "Failed to create assistant.");
