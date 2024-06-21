@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Box, Heading, Text, Input, Button, VStack, Image, Spinner } from "@chakra-ui/react";
 import axios from "axios";
+const ws = new WebSocket('ws://your-websocket-server-url');
 
 // Helper function to make API requests with retries and logging
 const makeRequest = async (url, method = 'GET', headers = {}, data = null, retries = 3) => {
@@ -150,6 +151,35 @@ const AIAnalysis = () => {
     initializeAssistant();
   }, []);
 
+  useEffect(() => {
+    ws.onopen = () => {
+      console.log('WebSocket connection established');
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      // Handle incoming messages
+      if (data.type === 'textAnalysis') {
+        setTextAnalysisResult(data.result);
+      } else if (data.type === 'imageRecognition') {
+        setImageRecognitionResult(data.result);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setError('WebSocket error occurred. Please try again later.');
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket connection closed');
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
+
   const handleTextAnalysis = async () => {
     if (!text) {
       setError("Text input cannot be empty.");
@@ -157,19 +187,7 @@ const AIAnalysis = () => {
     }
     setLoadingTextAnalysis(true);
     setError("");
-    try {
-      const response = await axios.post("https://api.aimlapi.com/text-analysis", { text }, {
-        headers: {
-          "Authorization": `Bearer ${process.env.REACT_APP_AIMLAPI_API_KEY}`
-        }
-      });
-      setTextAnalysisResult(response.data);
-    } catch (error) {
-      console.error("Error analyzing text:", error);
-      setError("Error analyzing text.");
-    } finally {
-      setLoadingTextAnalysis(false);
-    }
+    ws.send(JSON.stringify({ type: 'textAnalysis', text }));
   };
 
   const handleImageRecognition = async () => {
@@ -179,19 +197,7 @@ const AIAnalysis = () => {
     }
     setLoadingImageRecognition(true);
     setError("");
-    try {
-      const response = await axios.post("https://api.aimlapi.com/image-recognition", { imageUrl }, {
-        headers: {
-          "Authorization": `Bearer ${process.env.REACT_APP_AIMLAPI_API_KEY}`
-        }
-      });
-      setImageRecognitionResult(response.data);
-    } catch (error) {
-      console.error("Error recognizing image:", error);
-      setError("Error recognizing image.");
-    } finally {
-      setLoadingImageRecognition(false);
-    }
+    ws.send(JSON.stringify({ type: 'imageRecognition', imageUrl }));
   };
 
   const handleUserInput = async (userInput) => {
