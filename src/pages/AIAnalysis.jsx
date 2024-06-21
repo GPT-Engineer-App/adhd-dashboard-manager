@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Box, Heading, Text, Input, Button, VStack, Image } from "@chakra-ui/react";
+import { Box, Heading, Text, Input, Button, VStack, Image, Spinner } from "@chakra-ui/react";
 import axios from "axios";
 
 // Helper function to make API requests with retries and logging
@@ -9,6 +9,11 @@ const makeRequest = async (url, method = 'GET', headers = {}, data = null, retri
     "Content-Type": "application/json",
     ...headers
   };
+
+  if (!process.env.REACT_APP_AIMLAPI_API_KEY) {
+    console.error("API key is not set.");
+    return null;
+  }
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -52,21 +57,36 @@ const loadContext = () => {
 const createAssistant = async (name, description) => {
   const url = "https://api.aimlapi.com/v1/assistants";
   const data = { name, description };
-  return await makeRequest(url, 'POST', {}, data);
+  const response = await makeRequest(url, 'POST', {}, data);
+  if (!response) {
+    console.error("Failed to create assistant.");
+    return null;
+  }
+  return response;
 };
 
 // Create a thread
 const createThread = async (assistantId, title) => {
   const url = `https://api.aimlapi.com/v1/assistants/${assistantId}/threads`;
   const data = { title };
-  return await makeRequest(url, 'POST', {}, data);
+  const response = await makeRequest(url, 'POST', {}, data);
+  if (!response) {
+    console.error("Failed to create thread.");
+    return null;
+  }
+  return response;
 };
 
 // Create a run
 const createRun = async (threadId, inputText) => {
   const url = `https://api.aimlapi.com/v1/threads/${threadId}/runs`;
   const data = { input: inputText, context: shortTermMemory };
-  return await makeRequest(url, 'POST', {}, data);
+  const response = await makeRequest(url, 'POST', {}, data);
+  if (!response) {
+    console.error("Failed to create run.");
+    return null;
+  }
+  return response;
 };
 
 // Sentiment analysis tool
@@ -94,6 +114,10 @@ const AIAnalysis = () => {
   const [imageRecognitionResult, setImageRecognitionResult] = useState(null);
   const [assistantResponse, setAssistantResponse] = useState("");
   const [sentiment, setSentiment] = useState("");
+  const [loadingTextAnalysis, setLoadingTextAnalysis] = useState(false);
+  const [loadingImageRecognition, setLoadingImageRecognition] = useState(false);
+  const [loadingUserInput, setLoadingUserInput] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const initializeAssistant = async () => {
@@ -127,6 +151,12 @@ const AIAnalysis = () => {
   }, []);
 
   const handleTextAnalysis = async () => {
+    if (!text) {
+      setError("Text input cannot be empty.");
+      return;
+    }
+    setLoadingTextAnalysis(true);
+    setError("");
     try {
       const response = await axios.post("https://api.aimlapi.com/text-analysis", { text }, {
         headers: {
@@ -136,10 +166,19 @@ const AIAnalysis = () => {
       setTextAnalysisResult(response.data);
     } catch (error) {
       console.error("Error analyzing text:", error);
+      setError("Error analyzing text.");
+    } finally {
+      setLoadingTextAnalysis(false);
     }
   };
 
   const handleImageRecognition = async () => {
+    if (!imageUrl) {
+      setError("Image URL cannot be empty.");
+      return;
+    }
+    setLoadingImageRecognition(true);
+    setError("");
     try {
       const response = await axios.post("https://api.aimlapi.com/image-recognition", { imageUrl }, {
         headers: {
@@ -149,35 +188,53 @@ const AIAnalysis = () => {
       setImageRecognitionResult(response.data);
     } catch (error) {
       console.error("Error recognizing image:", error);
+      setError("Error recognizing image.");
+    } finally {
+      setLoadingImageRecognition(false);
     }
   };
 
   const handleUserInput = async (userInput) => {
+    if (!userInput) {
+      setError("User input cannot be empty.");
+      return;
+    }
+    setLoadingUserInput(true);
+    setError("");
     if (userInput.startsWith('code:')) {
       const code = userInput.slice(5).trim();
       const executionResult = executeCode(code);
       setAssistantResponse(`Code Execution Result: ${executionResult}`);
+      setLoadingUserInput(false);
       return;
     }
 
-    const sentimentResult = await sentimentAnalysis(userInput);
-    setSentiment(sentimentResult);
+    try {
+      const sentimentResult = await sentimentAnalysis(userInput);
+      setSentiment(sentimentResult);
 
-    const context = loadContext();
-    const threadId = context.threadInfo.id;
+      const context = loadContext();
+      const threadId = context.threadInfo.id;
 
-    const runResponse = await createRun(threadId, userInput);
-    if (!runResponse) {
-      console.error("Failed to process input.");
-      return;
+      const runResponse = await createRun(threadId, userInput);
+      if (!runResponse) {
+        console.error("Failed to process input.");
+        setError("Failed to process input.");
+        return;
+      }
+
+      const assistantResponse = runResponse.response;
+      setAssistantResponse(assistantResponse);
+
+      // Save the response to context for future use
+      shortTermMemory.lastInteraction = { userInput, assistantResponse };
+      saveContext(context);
+    } catch (error) {
+      console.error("Error processing user input:", error);
+      setError("Error processing user input.");
+    } finally {
+      setLoadingUserInput(false);
     }
-
-    const assistantResponse = runResponse.response;
-    setAssistantResponse(assistantResponse);
-
-    // Save the response to context for future use
-    shortTermMemory.lastInteraction = { userInput, assistantResponse };
-    saveContext(context);
   };
 
   return (
@@ -192,7 +249,7 @@ const AIAnalysis = () => {
             onChange={(e) => setText(e.target.value)}
             mb={2}
           />
-          <Button onClick={handleTextAnalysis} colorScheme="teal">Analyze Text</Button>
+          <Button onClick={handleTextAnalysis} colorScheme="teal" isLoading={loadingTextAnalysis}>Analyze Text</Button>
           {textAnalysisResult && (
             <Box mt={4}>
               <Heading as="h4" size="md">Analysis Result:</Heading>
@@ -208,7 +265,7 @@ const AIAnalysis = () => {
             onChange={(e) => setImageUrl(e.target.value)}
             mb={2}
           />
-          <Button onClick={handleImageRecognition} colorScheme="teal">Recognize Image</Button>
+          <Button onClick={handleImageRecognition} colorScheme="teal" isLoading={loadingImageRecognition}>Recognize Image</Button>
           {imageRecognitionResult && (
             <Box mt={4}>
               <Heading as="h4" size="md">Recognition Result:</Heading>
@@ -229,6 +286,7 @@ const AIAnalysis = () => {
             }}
             mb={2}
           />
+          {loadingUserInput && <Spinner />}
           {assistantResponse && (
             <Box mt={4}>
               <Heading as="h4" size="md">Assistant Response:</Heading>
@@ -242,6 +300,11 @@ const AIAnalysis = () => {
             </Box>
           )}
         </Box>
+        {error && (
+          <Box mt={4}>
+            <Text color="red.500">{error}</Text>
+          </Box>
+        )}
       </VStack>
     </Box>
   );
