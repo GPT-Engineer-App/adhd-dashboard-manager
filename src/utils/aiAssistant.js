@@ -1,7 +1,5 @@
 import axios from 'axios';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { openDB } from 'idb';
-import { sleep } from 'sleep';
 
 // Configure logging
 const log = (level, message) => {
@@ -35,7 +33,7 @@ const make_request = async (url, method = 'GET', headers = null, data = null, re
             return response.data;
         } catch (error) {
             log('error', `Request failed on attempt ${attempt + 1}: ${error}`);
-            await sleep(2 ** attempt);  // Exponential backoff
+            await new Promise(resolve => setTimeout(resolve, 2 ** attempt * 1000));  // Exponential backoff
             if (attempt === retries - 1) {
                 return null;
             }
@@ -69,25 +67,24 @@ const load_from_db = async (key) => {
     return await db.get('long_term_memory', key);
 };
 
-// Save context to file
-const save_context = (context, filename = "context.json") => {
+// Save context to localStorage
+const save_context = (context) => {
     try {
-        writeFileSync(filename, JSON.stringify(context));
+        localStorage.setItem('context', JSON.stringify(context));
     } catch (error) {
         log('error', `Could not save context: ${error}`);
     }
 };
 
-// Load context from file
-const load_context = (filename = "context.json") => {
-    if (existsSync(filename)) {
-        try {
-            return JSON.parse(readFileSync(filename));
-        } catch (error) {
-            log('error', `Could not load context: ${error}`);
-        }
+// Load context from localStorage
+const load_context = () => {
+    try {
+        const context = localStorage.getItem('context');
+        return context ? JSON.parse(context) : {};
+    } catch (error) {
+        log('error', `Could not load context: ${error}`);
+        return {};
     }
-    return {};
 };
 
 // Create an assistant
