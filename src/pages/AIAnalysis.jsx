@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Box, Heading, Text, Input, Button, VStack, Image } from "@chakra-ui/react";
 import axios from "axios";
+import { chatbot } from '../utils/aiAssistant';
 
 const AIAnalysis = () => {
   const [text, setText] = useState("");
@@ -71,6 +72,7 @@ const AIAnalysis = () => {
             </Box>
           )}
         </Box>
+        <Button onClick={chatbot} colorScheme="teal">Start Chatbot</Button>
       </VStack>
     </Box>
   );
