@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { Box, Heading, Text, Input, Button, VStack, Image, Spinner } from "@chakra-ui/react";
 import axios from "axios";
+import { WebSocket } from 'ws';
+import nlp from 'compromise';
+import compromiseNER from 'compromise-numbers';
 
 // Helper function to make API requests with retries and logging
 const makeRequest = async (url, method = 'GET', headers = {}, data = null, retries = 3) => {
@@ -118,80 +121,56 @@ const AIAnalysis = () => {
   const [loadingImageRecognition, setLoadingImageRecognition] = useState(false);
   const [loadingUserInput, setLoadingUserInput] = useState(false);
   const [error, setError] = useState("");
+  const [socket, setSocket] = useState(null);
+  const [customModel, setCustomModel] = useState(null);
+  const [analysisParameters, setAnalysisParameters] = useState({});
 
   useEffect(() => {
-    const initializeAssistant = async () => {
-      const assistantInfo = await createAssistant("BespokeAssistant", "A custom, context-aware assistant.");
-      if (!assistantInfo) {
-        console.error("Failed to create assistant.");
-        return;
-      }
+    const ws = new WebSocket('ws://your-websocket-url');
+    ws.onopen = () => console.log('WebSocket connection opened');
+    ws.onmessage = (event) => handleWebSocketMessage(event);
+    ws.onerror = (error) => console.error('WebSocket error:', error);
+    ws.onclose = () => console.log('WebSocket connection closed');
+    setSocket(ws);
 
-      const assistantId = assistantInfo.id;
-      if (!assistantId) {
-        console.error("Failed to retrieve assistant ID.");
-        return;
-      }
-
-      let context = loadContext();
-      let threadInfo = context.threadInfo;
-
-      if (!threadInfo) {
-        threadInfo = await createThread(assistantId, "Persistent Session");
-        if (!threadInfo) {
-          console.error("Failed to create thread.");
-          return;
-        }
-        context.threadInfo = threadInfo;
-        saveContext(context);
-      }
+    return () => {
+      ws.close();
     };
-
-    initializeAssistant();
   }, []);
 
-  const handleTextAnalysis = async () => {
+  const handleWebSocketMessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'textAnalysis') {
+      setTextAnalysisResult(data.result);
+    } else if (data.type === 'imageRecognition') {
+      setImageRecognitionResult(data.result);
+    }
+  };
+
+  const handleTextAnalysis = () => {
     if (!text) {
       setError("Text input cannot be empty.");
       return;
     }
     setLoadingTextAnalysis(true);
     setError("");
-    try {
-      const response = await axios.post("https://api.aimlapi.com/text-analysis", { text }, {
-        headers: {
-          "Authorization": `Bearer ${process.env.REACT_APP_AIMLAPI_API_KEY}`
-        }
-      });
-      setTextAnalysisResult(response.data);
-    } catch (error) {
-      console.error("Error analyzing text:", error);
-      setError("Error analyzing text.");
-    } finally {
-      setLoadingTextAnalysis(false);
-    }
+    socket.send(JSON.stringify({ type: 'textAnalysis', text }));
   };
 
-  const handleImageRecognition = async () => {
+  const handleImageRecognition = () => {
     if (!imageUrl) {
       setError("Image URL cannot be empty.");
       return;
     }
     setLoadingImageRecognition(true);
     setError("");
-    try {
-      const response = await axios.post("https://api.aimlapi.com/image-recognition", { imageUrl }, {
-        headers: {
-          "Authorization": `Bearer ${process.env.REACT_APP_AIMLAPI_API_KEY}`
-        }
-      });
-      setImageRecognitionResult(response.data);
-    } catch (error) {
-      console.error("Error recognizing image:", error);
-      setError("Error recognizing image.");
-    } finally {
-      setLoadingImageRecognition(false);
-    }
+    socket.send(JSON.stringify({ type: 'imageRecognition', imageUrl }));
+  };
+
+  const performAdvancedNLP = (text) => {
+    const doc = nlp(text).use(compromiseNER);
+    const entities = doc.entities().out('array');
+    return entities;
   };
 
   const handleUserInput = async (userInput) => {
@@ -213,6 +192,9 @@ const AIAnalysis = () => {
       const sentimentResult = await sentimentAnalysis(userInput);
       setSentiment(sentimentResult);
 
+      const entities = performAdvancedNLP(userInput);
+      setTextAnalysisResult({ sentiment: sentimentResult, entities });
+
       const context = loadContext();
       const threadId = context.threadInfo.id;
 
@@ -230,11 +212,26 @@ const AIAnalysis = () => {
       shortTermMemory.lastInteraction = { userInput, assistantResponse };
       saveContext(context);
     } catch (error) {
-      console.error("Error processing user input:", error);
-      setError("Error processing user input.");
+      handleError(error);
     } finally {
       setLoadingUserInput(false);
     }
+  };
+
+  const handleCustomModelUpload = (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => setCustomModel(e.target.result);
+    reader.readAsText(file);
+  };
+
+  const handleParameterChange = (param, value) => {
+    setAnalysisParameters((prevParams) => ({ ...prevParams, [param]: value }));
+  };
+
+  const handleError = (error) => {
+    console.error("Error:", error);
+    setError(`An error occurred: ${error.message}. Please try again or contact support if the issue persists.`);
   };
 
   return (
@@ -299,6 +296,13 @@ const AIAnalysis = () => {
               <Text>{JSON.stringify(sentiment, null, 2)}</Text>
             </Box>
           )}
+        </Box>
+        <Box>
+          <Heading as="h3" size="lg" mb={2}>Custom Model Upload</Heading>
+          <Input type="file" onChange={handleCustomModelUpload} mb={2} />
+          <Heading as="h3" size="lg" mb={2}>Analysis Parameters</Heading>
+          <Input placeholder="Parameter 1" onChange={(e) => handleParameterChange('param1', e.target.value)} mb={2} />
+          <Input placeholder="Parameter 2" onChange={(e) => handleParameterChange('param2', e.target.value)} mb={2} />
         </Box>
         {error && (
           <Box mt={4}>
